@@ -4,7 +4,6 @@ import 'package:amidakuji_app/amidakuji_utils.dart';
 import 'package:amidakuji_app/model/amida_lottery.dart';
 import 'package:amidakuji_app/model/participant.dart';
 import 'package:flutter/material.dart';
-
 import 'package:flutter/services.dart';
 
 // あみだのスペース
@@ -57,15 +56,15 @@ class _AmidaBodyState extends State<AmidaBody>
     _horizontalLines =
         _generateRandomHorizontalLines(widget.participantList.length);
 
-    // アニメーションの設定
+    // アニメーションの設定（1本ずつ見せるため、少し長めの8秒に設定）
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 6), // アニメーションの持続時間
+      duration: const Duration(seconds: 8), 
     );
 
     _animation = CurvedAnimation(
       parent: _animationController,
-      curve: Curves.easeInOut,
+      curve: Curves.linear, // 等速で滑らかにバトンタッチさせるためlinearに変更
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -149,21 +148,17 @@ class _AmidaBodyState extends State<AmidaBody>
       var currentY = _kCanvasHeight;
       path.add(Offset(currentX, currentY));
 
-      // 最後に処理した横線のY座標を記録して、同じ高さの横線を再度処理しないようにする
       double? lastProcessedY;
 
       while (currentY > 0) {
-        // 現在の位置から上方向にある最も近い横線を探す
         final availableLines = _horizontalLines.where((line) {
           final lineY = line.yPositionFactor * _kCanvasHeight;
-          return lineY < currentY && // 現在位置より上にある
-              (lastProcessedY == null ||
-                  lineY != lastProcessedY) && // まだ処理していない高さ
+          return lineY < currentY && 
+              (lastProcessedY == null || lineY != lastProcessedY) && 
               (line.startColomn * _kColumnSpacing == currentX ||
-                  line.endColumn * _kColumnSpacing == currentX); // 現在の列に接続している
+                  line.endColumn * _kColumnSpacing == currentX); 
         }).toList()
           ..sort(
-            // Y座標でソートして最も近い（大きい）ものを選択
             (a, b) => (b.yPositionFactor * _kCanvasHeight)
                 .compareTo(a.yPositionFactor * _kCanvasHeight),
           );
@@ -173,16 +168,13 @@ class _AmidaBodyState extends State<AmidaBody>
           currentY = nextLine.yPositionFactor * _kCanvasHeight;
           path.add(Offset(currentX, currentY));
 
-          // 横線を渡る
           currentX = (nextLine.startColomn * _kColumnSpacing == currentX)
               ? nextLine.endColumn * _kColumnSpacing
               : nextLine.startColomn * _kColumnSpacing;
           path.add(Offset(currentX, currentY));
 
-          // 処理した高さを記録
           lastProcessedY = currentY;
         } else {
-          // 横線がない場合は上に進む
           currentY = 0;
           path.add(Offset(currentX, currentY));
         }
@@ -205,7 +197,7 @@ class _AmidaBodyState extends State<AmidaBody>
             child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight + 150, // 調整値
+                  minHeight: constraints.maxHeight + 150, 
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -235,7 +227,6 @@ class _AmidaBodyState extends State<AmidaBody>
                         onPressed: () {
                           _startAnimation();
                           setState(() {
-                            // ボタンを非表示にする
                             isShowButton = false;
                           });
                         },
@@ -276,7 +267,7 @@ class AmidaPainter extends CustomPainter {
 
   final List<HorizontalLine> horizontalLines;
   final List<Participant> nameList;
-  final List<AmidaLottery> lotteryList;
+  final List = lotteryList;
   final List<List<Offset>> winningLinePaths;
   final ui.Image? image;
   final double animationProgress;
@@ -295,11 +286,9 @@ class AmidaPainter extends CustomPainter {
     for (var i = 0;
         i < horizontalLines.length / _kMaxHorizontalLinesPerColumn + 1;
         i++) {
-      // 縦線を端から端まで引く
       final x = i * _kColumnSpacing;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
 
-      // 各縦線の上に名前を描画
       final nameTextPainter = TextPainter(
         text: TextSpan(
           children: [
@@ -317,50 +306,40 @@ class AmidaPainter extends CustomPainter {
       )..layout();
 
       final nameOffset = Offset(
-        x - nameTextPainter.width / 2, // 中央揃え
-        -nameTextPainter.height - 5, // 縦線の上に少し余白を加える
+        x - nameTextPainter.width / 2, 
+        -nameTextPainter.height - 5, 
       );
       nameTextPainter.paint(canvas, nameOffset);
 
-      // 各縦線の下に当たり画像を描画
       if (lotteryList[i] == AmidaLottery.win) {
-        // 元画像の幅と高さ
         final originalWidth = image!.width.toDouble();
         final originalHeight = image!.height.toDouble();
         final aspectRatio = originalWidth / originalHeight;
 
-        // 描画する画像の最大幅と高さ
-        const maxWidth = 50.0; // 最大幅（任意で変更）
-        const maxHeight = 50.0; // 最大高さ（任意で変更）
+        const maxWidth = 50.0; 
+        const maxHeight = 50.0; 
 
-        // アスペクト比を保った描画サイズを計算
         late double drawWidth;
         late double drawHeight;
 
         if (aspectRatio > 1) {
-          // 横長の場合、幅を最大幅に合わせる
           drawWidth = maxWidth;
           drawHeight = maxWidth / aspectRatio;
         } else {
-          // 縦長の場合、高さを最大高さに合わせる
           drawHeight = maxHeight;
           drawWidth = maxHeight * aspectRatio;
         }
 
-        // 中央揃えになるよう位置を調整
-        final imageX = x - drawWidth / 2; // 中央揃え
-        final imageY = size.height + 5; // 縦線の下に少し余白を加える
+        final imageX = x - drawWidth / 2; 
+        final imageY = size.height + 5; 
 
-        // 描画先の範囲を設定
         final dstRect = Rect.fromLTWH(imageX, imageY, drawWidth, drawHeight);
         final srcRect = Rect.fromLTWH(0, 0, originalWidth, originalHeight);
 
-        // Canvas に画像を描画
         canvas.drawImageRect(image!, srcRect, dstRect, Paint());
       }
     }
 
-    // 横線を引く
     for (final line in horizontalLines) {
       final startColumn = line.startColomn;
       final endColumn = line.endColumn;
@@ -373,58 +352,57 @@ class AmidaPainter extends CustomPainter {
       canvas.drawLine(Offset(startX, y), Offset(endX, y), paint);
     }
 
-    // 当たりの線を描画
-    // 当選者は2つのみ
+    // 1本ずつ順番に走るようにアニメーション進行度の計算を調整
     if (winningLinePaths.isNotEmpty && winningLinePaths.length == 2) {
-      // 1人目の当選者を赤色で塗っていく
+      
+      // --- 1人目の当選者（赤色）：進捗 0.0 〜 0.5 の間で動く ---
       final redPaint = Paint()
         ..color = Colors.red
         ..strokeWidth = 10
         ..style = PaintingStyle.stroke;
+
+      final redProgress = (animationProgress * 2).clamp(0.0, 1.0);
 
       final redLinePath = winningLinePaths.first;
       for (var i = 0; i < redLinePath.length - 1; i++) {
         final start = redLinePath[i];
         final end = redLinePath[i + 1];
 
-        // アニメーションの進行度に基づき描画
         final progress = (i + 1) / redLinePath.length;
-        if (animationProgress >= progress) {
+        if (redProgress >= progress) {
           canvas.drawLine(start, end, redPaint);
-        } else if (animationProgress >= i / redLinePath.length) {
-          final t =
-              (animationProgress - i / redLinePath.length) * redLinePath.length;
+        } else if (redProgress >= i / redLinePath.length) {
+          final t = (redProgress - i / redLinePath.length) * redLinePath.length;
           final partialEnd = Offset(
             start.dx + (end.dx - start.dx) * t,
-            start.dy + (end.dy - start.dy) * t, // 縦方向の補間を進行方向として維持
+            start.dy + (end.dy - start.dy) * t,
           );
           canvas.drawLine(start, partialEnd, redPaint);
           break;
         }
       }
 
-      // 2人目の当選者をオレンジ色で塗っていく
+      // --- 2人目の当選者（オレンジ色）：進捗 0.5 〜 1.0 の間で動く ---
       final orangePaint = Paint()
         ..color = Colors.orange
         ..strokeWidth = 10
         ..style = PaintingStyle.stroke;
 
-      final orangeLinePath = winningLinePaths.last;
+      final orangeProgress = animationProgress < 0.5 ? 0.0 : ((animationProgress - 0.5) * 2).clamp(0.0, 1.0);
 
+      final orangeLinePath = winningLinePaths.last;
       for (var i = 0; i < orangeLinePath.length - 1; i++) {
         final start = orangeLinePath[i];
         final end = orangeLinePath[i + 1];
 
-        // アニメーションの進行度に基づき描画
         final progress = (i + 1) / orangeLinePath.length;
-        if (animationProgress >= progress) {
+        if (orangeProgress >= progress) {
           canvas.drawLine(start, end, orangePaint);
-        } else if (animationProgress >= i / orangeLinePath.length) {
-          final t = (animationProgress - i / orangeLinePath.length) *
-              orangeLinePath.length;
+        } else if (orangeProgress >= i / orangeLinePath.length) {
+          final t = (orangeProgress - i / orangeLinePath.length) * orangeLinePath.length;
           final partialEnd = Offset(
             start.dx + (end.dx - start.dx) * t,
-            start.dy + (end.dy - start.dy) * t, // 縦方向の補間を進行方向として維持
+            start.dy + (end.dy - start.dy) * t,
           );
           canvas.drawLine(start, partialEnd, orangePaint);
           break;
