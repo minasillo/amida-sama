@@ -32,16 +32,9 @@ class AmidaBody extends StatefulWidget {
 
 class _AmidaBodyState extends State<AmidaBody>
     with SingleTickerProviderStateMixin {
+  final Set<int> _selectedWinningIndices = {};
   List<HorizontalLine> _horizontalLines = [];
-  late List<AmidaLottery> lotteryList = [
-    // 当たりは2つだけ
-    AmidaLottery.win,
-    AmidaLottery.win,
-    ...List.generate(
-      widget.participantList.length - 2,
-      (_) => AmidaLottery.lose,
-    ),
-  ]..shuffle();
+  late List<AmidaLottery> lotteryList;
   List<List<Offset>> _winningLinePaths = [];
   ui.Image? image;
 
@@ -53,6 +46,8 @@ class _AmidaBodyState extends State<AmidaBody>
   @override
   void initState() {
     super.initState();
+    _selectedWinningIndices.addAll(_defaultWinningIndices());
+    _syncLotteryList();
     _horizontalLines =
         _generateRandomHorizontalLines(widget.participantList.length);
 
@@ -85,6 +80,35 @@ class _AmidaBodyState extends State<AmidaBody>
   void dispose() {
     _animationController.dispose();
     super.dispose();
+  }
+
+  List<int> _defaultWinningIndices() {
+    if (widget.participantList.isEmpty) {
+      return const [];
+    }
+
+    final count = widget.participantList.length > 2 ? 2 : widget.participantList.length;
+    return List<int>.generate(count, (index) => index);
+  }
+
+  void _syncLotteryList() {
+    lotteryList = List.generate(
+      widget.participantList.length,
+      (index) => _selectedWinningIndices.contains(index)
+          ? AmidaLottery.win
+          : AmidaLottery.lose,
+    );
+  }
+
+  void _toggleWinning(int index) {
+    setState(() {
+      if (_selectedWinningIndices.contains(index)) {
+        _selectedWinningIndices.remove(index);
+      } else {
+        _selectedWinningIndices.add(index);
+      }
+      _syncLotteryList();
+    });
   }
 
   Future<ui.Image> _loadAssetImage(String assetPath) async {
@@ -208,6 +232,33 @@ class _AmidaBodyState extends State<AmidaBody>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    const SizedBox(height: 12),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        alignment: WrapAlignment.center,
+                        children: List.generate(
+                          widget.participantList.length,
+                          (index) {
+                            final participant = widget.participantList[index];
+                            final isSelected = _selectedWinningIndices.contains(index);
+
+                            return ChoiceChip(
+                              label: Text(
+                                '${participant.lastName}${participant.firstName}',
+                              ),
+                              selected: isSelected,
+                              onSelected: (_) => _toggleWinning(index),
+                              selectedColor: Colors.red.withOpacity(0.25),
+                              backgroundColor: Colors.white,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     Padding(
                       padding: const EdgeInsets.all(8),
                       child: AnimatedBuilder(
