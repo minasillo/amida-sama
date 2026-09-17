@@ -23,8 +23,14 @@ class HomePage extends StatelessWidget {
         ),
         body: TabBarView(
           children: [
-            _HomeBody(wininngImagePath: CoupleRole.groom.winningImagePath),
-            _HomeBody(wininngImagePath: CoupleRole.bride.winningImagePath),
+            _HomeBody(
+              wininngImagePath: CoupleRole.groom.winningImagePath,
+              allowManualLines: false,
+            ),
+            _HomeBody(
+              wininngImagePath: CoupleRole.bride.winningImagePath,
+              allowManualLines: true,
+            ),
           ],
         ),
       ),
@@ -33,9 +39,10 @@ class HomePage extends StatelessWidget {
 }
 
 class _HomeBody extends StatefulWidget {
-  const _HomeBody({required this.wininngImagePath});
+  const _HomeBody({required this.wininngImagePath, required this.allowManualLines});
 
   final String wininngImagePath;
+  final bool allowManualLines;
 
   @override
   State<_HomeBody> createState() => _HomeBodyState();
@@ -56,6 +63,7 @@ class _HomeBodyState extends State<_HomeBody>
         ? AmidaBody(
             participantList: participantList,
             wininngImagePath: widget.wininngImagePath,
+            allowManualLines: widget.allowManualLines,
           )
         : Padding(
             padding: const EdgeInsets.all(16),
