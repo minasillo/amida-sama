@@ -166,7 +166,6 @@ class _AmidaBodyState extends State<AmidaBody> with SingleTickerProviderStateMix
                 runSpacing: 8,
                 alignment: WrapAlignment.center,
                 children: List.generate(widget.participantList.length, (index) => ChoiceChip(
-                  // CSVの氏名ではなく、入力順の番号を選択肢として表示する
                   label: Text('${index + 1}'),
                   selected: _selectedWinningIndices.contains(index),
                   onSelected: (_) => _toggleWinning(index),
@@ -177,7 +176,7 @@ class _AmidaBodyState extends State<AmidaBody> with SingleTickerProviderStateMix
             ),
             const SizedBox(height: 12),
             Padding(
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.only(top: 32, left: 8, right: 8),
               child: AnimatedBuilder(
                 animation: _animation,
                 builder: (context, child) => CustomPaint(
@@ -262,8 +261,6 @@ class AmidaPainter extends CustomPainter {
       final y = size.height * line.yPositionFactor;
       canvas.drawLine(Offset(line.startColomn * _kColumnSpacing, y), Offset(line.endColumn * _kColumnSpacing, y), paint);
     }
-
-    // 選択された当たり線を人数に応じて順番に表示する。色は当たりごとに変える。
     final pathCount = winningLinePaths.length;
     if (pathCount == 0) return;
     for (var pathIndex = 0; pathIndex < pathCount; pathIndex++) {
