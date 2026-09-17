@@ -59,7 +59,7 @@ class _AmidaBodyState extends State<AmidaBody>
     // アニメーションの設定（1本ずつ見せるため、少し長めの8秒に設定）
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 8), 
+      duration: const Duration(seconds: 8),
     );
 
     _animation = CurvedAnimation(
@@ -68,10 +68,16 @@ class _AmidaBodyState extends State<AmidaBody>
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final imageData = await _loadAssetImage(widget.wininngImagePath);
-      setState(() {
-        image = imageData;
-      });
+      try {
+        final imageData = await _loadAssetImage(widget.wininngImagePath);
+        if (mounted) {
+          setState(() {
+            image = imageData;
+          });
+        }
+      } catch (e) {
+        debugPrint('画像アセットの読み込みに失敗しました: $e');
+      }
     });
   }
 
@@ -153,10 +159,10 @@ class _AmidaBodyState extends State<AmidaBody>
       while (currentY > 0) {
         final availableLines = _horizontalLines.where((line) {
           final lineY = line.yPositionFactor * _kCanvasHeight;
-          return lineY < currentY && 
-              (lastProcessedY == null || lineY != lastProcessedY) && 
+          return lineY < currentY &&
+              (lastProcessedY == null || lineY != lastProcessedY) &&
               (line.startColomn * _kColumnSpacing == currentX ||
-                  line.endColumn * _kColumnSpacing == currentX); 
+                  line.endColumn * _kColumnSpacing == currentX);
         }).toList()
           ..sort(
             (a, b) => (b.yPositionFactor * _kCanvasHeight)
@@ -197,7 +203,7 @@ class _AmidaBodyState extends State<AmidaBody>
             child: Center(
               child: ConstrainedBox(
                 constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight + 150, 
+                  minHeight: constraints.maxHeight + 150,
                 ),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -267,17 +273,13 @@ class AmidaPainter extends CustomPainter {
 
   final List<HorizontalLine> horizontalLines;
   final List<Participant> nameList;
-  final List = lotteryList;
+  final List<AmidaLottery> lotteryList;
   final List<List<Offset>> winningLinePaths;
   final ui.Image? image;
   final double animationProgress;
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (image == null) {
-      return;
-    }
-
     final paint = Paint()
       ..color = Colors.brown
       ..strokeWidth = 4
@@ -289,54 +291,58 @@ class AmidaPainter extends CustomPainter {
       final x = i * _kColumnSpacing;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
 
-      final nameTextPainter = TextPainter(
-        text: TextSpan(
-          children: [
-            TextSpan(text: '${nameList[i].lastName}\n'),
-            TextSpan(text: nameList[i].firstName),
-          ],
-          style: const TextStyle(
-            color: Colors.black,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
+      if (i < nameList.length) {
+        final nameTextPainter = TextPainter(
+          text: TextSpan(
+            children: [
+              TextSpan(text: '${nameList[i].lastName}\n'),
+              TextSpan(text: nameList[i].firstName),
+            ],
+            style: const TextStyle(
+              color: Colors.black,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ),
-        textAlign: TextAlign.center,
-        textDirection: TextDirection.ltr,
-      )..layout();
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout();
 
-      final nameOffset = Offset(
-        x - nameTextPainter.width / 2, 
-        -nameTextPainter.height - 5, 
-      );
-      nameTextPainter.paint(canvas, nameOffset);
+        final nameOffset = Offset(
+          x - nameTextPainter.width / 2,
+          -nameTextPainter.height - 5,
+        );
+        nameTextPainter.paint(canvas, nameOffset);
+      }
 
-      if (lotteryList[i] == AmidaLottery.win) {
-        final originalWidth = image!.width.toDouble();
-        final originalHeight = image!.height.toDouble();
-        final aspectRatio = originalWidth / originalHeight;
+      if (i < lotteryList.length && lotteryList[i] == AmidaLottery.win) {
+        if (image != null) {
+          final originalWidth = image!.width.toDouble();
+          final originalHeight = image!.height.toDouble();
+          final aspectRatio = originalWidth / originalHeight;
 
-        const maxWidth = 50.0; 
-        const maxHeight = 50.0; 
+          const maxWidth = 50.0;
+          const maxHeight = 50.0;
 
-        late double drawWidth;
-        late double drawHeight;
+          late double drawWidth;
+          late double drawHeight;
 
-        if (aspectRatio > 1) {
-          drawWidth = maxWidth;
-          drawHeight = maxWidth / aspectRatio;
-        } else {
-          drawHeight = maxHeight;
-          drawWidth = maxHeight * aspectRatio;
+          if (aspectRatio > 1) {
+            drawWidth = maxWidth;
+            drawHeight = maxWidth / aspectRatio;
+          } else {
+            drawHeight = maxHeight;
+            drawWidth = maxHeight * aspectRatio;
+          }
+
+          final imageX = x - drawWidth / 2;
+          final imageY = size.height + 5;
+
+          final dstRect = Rect.fromLTWH(imageX, imageY, drawWidth, drawHeight);
+          final srcRect = Rect.fromLTWH(0, 0, originalWidth, originalHeight);
+
+          canvas.drawImageRect(image!, srcRect, dstRect, Paint());
         }
-
-        final imageX = x - drawWidth / 2; 
-        final imageY = size.height + 5; 
-
-        final dstRect = Rect.fromLTWH(imageX, imageY, drawWidth, drawHeight);
-        final srcRect = Rect.fromLTWH(0, 0, originalWidth, originalHeight);
-
-        canvas.drawImageRect(image!, srcRect, dstRect, Paint());
       }
     }
 
@@ -354,7 +360,6 @@ class AmidaPainter extends CustomPainter {
 
     // 1本ずつ順番に走るようにアニメーション進行度の計算を調整
     if (winningLinePaths.isNotEmpty && winningLinePaths.length == 2) {
-      
       // --- 1人目の当選者（赤色）：進捗 0.0 〜 0.5 の間で動く ---
       final redPaint = Paint()
         ..color = Colors.red
@@ -372,7 +377,8 @@ class AmidaPainter extends CustomPainter {
         if (redProgress >= progress) {
           canvas.drawLine(start, end, redPaint);
         } else if (redProgress >= i / redLinePath.length) {
-          final t = (redProgress - i / redLinePath.length) * redLinePath.length;
+          final t =
+              (redProgress - i / redLinePath.length) * redLinePath.length;
           final partialEnd = Offset(
             start.dx + (end.dx - start.dx) * t,
             start.dy + (end.dy - start.dy) * t,
@@ -388,7 +394,9 @@ class AmidaPainter extends CustomPainter {
         ..strokeWidth = 10
         ..style = PaintingStyle.stroke;
 
-      final orangeProgress = animationProgress < 0.5 ? 0.0 : ((animationProgress - 0.5) * 2).clamp(0.0, 1.0);
+      final orangeProgress = animationProgress < 0.5
+          ? 0.0
+          : ((animationProgress - 0.5) * 2).clamp(0.0, 1.0);
 
       final orangeLinePath = winningLinePaths.last;
       for (var i = 0; i < orangeLinePath.length - 1; i++) {
@@ -399,7 +407,8 @@ class AmidaPainter extends CustomPainter {
         if (orangeProgress >= progress) {
           canvas.drawLine(start, end, orangePaint);
         } else if (orangeProgress >= i / orangeLinePath.length) {
-          final t = (orangeProgress - i / orangeLinePath.length) * orangeLinePath.length;
+          final t = (orangeProgress - i / orangeLinePath.length) *
+              orangeLinePath.length;
           final partialEnd = Offset(
             start.dx + (end.dx - start.dx) * t,
             start.dy + (end.dy - start.dy) * t,
