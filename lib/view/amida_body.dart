@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ui' as ui;
-
 import 'package:amidakuji_app/amidakuji_utils.dart';
 import 'package:amidakuji_app/model/amida_lottery.dart';
 import 'package:amidakuji_app/model/participant.dart';
@@ -10,7 +9,6 @@ import 'package:flutter/services.dart';
 const double _kColumnSpacing = 60;
 const double _kCanvasWidth = 1250;
 const double _kCanvasHeight = 500;
-const double _kCanvasTopPadding = 40;
 const int _kMaxHorizontalLinesPerColumn = 7;
 
 class AmidaBody extends StatefulWidget {
@@ -32,11 +30,12 @@ class AmidaBody extends StatefulWidget {
 class _AmidaBodyState extends State<AmidaBody>
     with SingleTickerProviderStateMixin {
   final Set<int> _selectedWinningIndices = {};
-  late List<HorizontalLine> _horizontalLines;
+  List<HorizontalLine> _horizontalLines = [];
   late List<AmidaLottery> lotteryList;
   List<List<Offset>> _winningLinePaths = [];
   ui.Image? image;
   bool isShowButton = true;
+
   late AnimationController _animationController;
   late Animation<double> _animation;
 
@@ -48,10 +47,12 @@ class _AmidaBodyState extends State<AmidaBody>
     _horizontalLines = widget.allowManualLines
         ? []
         : _generateRandomHorizontalLines(widget.participantList.length);
+
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 8),
     );
+
     _animation = CurvedAnimation(
       parent: _animationController,
       curve: Curves.linear,
@@ -60,7 +61,11 @@ class _AmidaBodyState extends State<AmidaBody>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final imageData = await _loadAssetImage(widget.wininngImagePath);
-        if (mounted) setState(() => image = imageData);
+        if (mounted) {
+          setState(() {
+            image = imageData;
+          });
+        }
       } catch (e) {
         debugPrint('画像アセットの読み込みに失敗しました: $e');
       }
@@ -74,9 +79,11 @@ class _AmidaBodyState extends State<AmidaBody>
   }
 
   List<int> _defaultWinningIndices() {
-    final count = widget.participantList.length > 2
-        ? 2
-        : widget.participantList.length;
+    if (widget.participantList.isEmpty) {
+      return const [];
+    }
+
+    final count = widget.participantList.length > 2 ? 2 : widget.participantList.length;
     return List<int>.generate(count, (index) => index);
   }
 
@@ -101,29 +108,28 @@ class _AmidaBodyState extends State<AmidaBody>
     });
   }
 
-  void _handleCanvasTap(TapUpDetails details, double scale) {
-    if (!widget.allowManualLines || !isShowButton) return;
-
-    // 表示時の縮小率を戻して、論理キャンバス上の座標に変換する。
-    final x = details.localPosition.dx / scale;
-    final y = details.localPosition.dy / scale - _kCanvasTopPadding;
-    if (x < 0 || x >= _kCanvasWidth || y < 0 || y > _kCanvasHeight) {
+  void _handleCanvasTap(TapUpDetails details) {
+    if (!widget.allowManualLines || !isShowButton) {
       return;
     }
 
+    final local = details.localPosition;
+    final x = local.dx.clamp(0.0, _kCanvasWidth);
+    final y = local.dy.clamp(0.0, _kCanvasHeight);
     final columnIndex = (x / _kColumnSpacing).floor();
-    if (columnIndex < 0 ||
-        columnIndex >= widget.participantList.length - 1) {
+    final yFactor = (y / _kCanvasHeight).clamp(0.0, 1.0);
+
+    if (columnIndex >= widget.participantList.length - 1) {
       return;
     }
 
-    final yFactor = (y / _kCanvasHeight).clamp(0.0, 1.0);
     setState(() {
       final existingIndex = _horizontalLines.indexWhere(
         (line) =>
             line.startColomn == columnIndex &&
             (line.yPositionFactor - yFactor).abs() < 0.05,
       );
+
       if (existingIndex >= 0) {
         _horizontalLines.removeAt(existingIndex);
       } else {
@@ -148,29 +154,35 @@ class _AmidaBodyState extends State<AmidaBody>
   List<HorizontalLine> _generateRandomHorizontalLines(int columns) {
     const min = 1;
     const max = 20;
-    final result = <HorizontalLine>[];
-    final previous = <double>{};
+    final horizontalLinesList = <HorizontalLine>[];
+    final prevYPositionFactors = <double>{};
 
-    for (var column = 0; column < columns - 1; column++) {
-      final values = <double>{};
-      while (values.length < _kMaxHorizontalLinesPerColumn) {
-        final value = randomDecimalInRangeWithStep05(min, max);
-        if (!previous.contains(value)) values.add(value);
-      }
-      previous
+    for (var i = 0; i < columns - 1; i++) {
+      late double newYPositionFactor;
+      final tempYPositionFactors = <double>{};
+      do {
+        newYPositionFactor = randomDecimalInRangeWithStep05(min, max);
+        if (!prevYPositionFactors.contains(newYPositionFactor)) {
+          tempYPositionFactors.add(newYPositionFactor);
+        }
+      } while (tempYPositionFactors.length < _kMaxHorizontalLinesPerColumn);
+
+      prevYPositionFactors
         ..clear()
-        ..addAll(values);
-      result.addAll(
-        values.map(
+        ..addAll(tempYPositionFactors);
+
+      horizontalLinesList.addAll(
+        tempYPositionFactors.map(
           (y) => HorizontalLine(
-            startColomn: column,
-            endColumn: column + 1,
+            startColomn: i,
+            endColumn: i + 1,
             yPositionFactor: y,
           ),
         ),
       );
     }
-    return result;
+
+    return horizontalLinesList;
   }
 
   void _startAnimation() {
@@ -189,11 +201,11 @@ class _AmidaBodyState extends State<AmidaBody>
       final path = <Offset>[];
       var currentX = winningIndex * _kColumnSpacing;
       var currentY = _kCanvasHeight;
-      double? lastProcessedY;
       path.add(Offset(currentX, currentY));
+      double? lastProcessedY;
 
       while (currentY > 0) {
-        final lines = _horizontalLines.where((line) {
+        final availableLines = _horizontalLines.where((line) {
           final lineY = line.yPositionFactor * _kCanvasHeight;
           return lineY < currentY &&
               (lastProcessedY == null || lineY != lastProcessedY) &&
@@ -205,124 +217,97 @@ class _AmidaBodyState extends State<AmidaBody>
                 .compareTo(a.yPositionFactor * _kCanvasHeight),
           );
 
-        if (lines.isEmpty) {
+        if (availableLines.isNotEmpty) {
+          final nextLine = availableLines.first;
+          currentY = nextLine.yPositionFactor * _kCanvasHeight;
+          path.add(Offset(currentX, currentY));
+          currentX = nextLine.startColomn * _kColumnSpacing == currentX
+              ? nextLine.endColumn * _kColumnSpacing
+              : nextLine.startColomn * _kColumnSpacing;
+          path.add(Offset(currentX, currentY));
+          lastProcessedY = currentY;
+        } else {
           currentY = 0;
           path.add(Offset(currentX, currentY));
-          continue;
         }
-
-        final nextLine = lines.first;
-        currentY = nextLine.yPositionFactor * _kCanvasHeight;
-        path.add(Offset(currentX, currentY));
-        currentX = nextLine.startColomn * _kColumnSpacing == currentX
-            ? nextLine.endColumn * _kColumnSpacing
-            : nextLine.startColomn * _kColumnSpacing;
-        path.add(Offset(currentX, currentY));
-        lastProcessedY = currentY;
       }
+
       paths.add(path);
     }
-    setState(() => _winningLinePaths = paths);
+
+    setState(() {
+      _winningLinePaths = paths;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: LayoutBuilder(
-        builder: (context, constraints) {
-          final availableWidth = constraints.maxWidth.isFinite
-              ? constraints.maxWidth
-              : _kCanvasWidth;
-          final scale = (availableWidth / _kCanvasWidth).clamp(0.0, 1.0);
-          final displayedHeight =
-              (_kCanvasHeight + _kCanvasTopPadding) * scale;
-
-          return SingleChildScrollView(
-            child: Center(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 12),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        alignment: WrapAlignment.center,
-                        children: List.generate(
-                          widget.participantList.length,
-                          (index) => ChoiceChip(
-                            label: Text('${index + 1}'),
-                            selected: _selectedWinningIndices.contains(index),
-                            onSelected: (_) => _toggleWinning(index),
-                            selectedColor: Colors.red.withOpacity(0.25),
+        builder: (context, constraints) => SingleChildScrollView(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight + 150),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: List.generate(
+                        widget.participantList.length,
+                        (index) => ChoiceChip(
+                          label: Text('${index + 1}'),
+                          selected: _selectedWinningIndices.contains(index),
+                          onSelected: (_) => _toggleWinning(index),
+                          selectedColor: Colors.red.withOpacity(0.25),
+                          backgroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 32, left: 8, right: 8),
+                    child: GestureDetector(
+                      onTapUp: widget.allowManualLines && isShowButton
+                          ? _handleCanvasTap
+                          : null,
+                      behavior: HitTestBehavior.opaque,
+                      child: AnimatedBuilder(
+                        animation: _animation,
+                        builder: (context, child) => CustomPaint(
+                          size: const Size(_kCanvasWidth, _kCanvasHeight),
+                          painter: AmidaPainter(
+                            horizontalLines: _horizontalLines,
+                            nameList: widget.participantList,
+                            lotteryList: lotteryList,
+                            winningLinePaths: _winningLinePaths,
+                            image: image,
+                            animationProgress: _animation.value,
                           ),
                         ),
                       ),
                     ),
-                    if (widget.allowManualLines) ...[
-                      const SizedBox(height: 8),
-                      const Text('線を追加する場所をタップ（既存の線で削除）'),
-                    ],
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: availableWidth,
-                      height: displayedHeight,
-                      child: Align(
-                        alignment: Alignment.topLeft,
-                        child: Transform.scale(
-                          scale: scale,
-                          alignment: Alignment.topLeft,
-                          child: SizedBox(
-                            width: _kCanvasWidth,
-                            height: _kCanvasHeight + _kCanvasTopPadding,
-                            child: GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTapUp: widget.allowManualLines && isShowButton
-                                  ? (details) =>
-                                      _handleCanvasTap(details, scale)
-                                  : null,
-                              child: Padding(
-                                padding: const EdgeInsets.only(
-                                  top: _kCanvasTopPadding,
-                                ),
-                                child: AnimatedBuilder(
-                                  animation: _animation,
-                                  builder: (context, child) => CustomPaint(
-                                    size: const Size(
-                                      _kCanvasWidth,
-                                      _kCanvasHeight,
-                                    ),
-                                    painter: AmidaPainter(
-                                      horizontalLines: _horizontalLines,
-                                      nameList: widget.participantList,
-                                      lotteryList: lotteryList,
-                                      winningLinePaths: _winningLinePaths,
-                                      image: image,
-                                      animationProgress: _animation.value,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
+                  ),
+                  const SizedBox(height: 60),
+                  if (isShowButton)
+                    ElevatedButton(
+                      onPressed: () {
+                        _startAnimation();
+                        setState(() => isShowButton = false);
+                      },
+                      child: const Text('結果を発表！'),
                     ),
-                    const SizedBox(height: 40),
-                    if (isShowButton)
-                      ElevatedButton(
-                        onPressed: _startAnimation,
-                        child: const Text('結果を発表！'),
-                      ),
-                  ],
-                ),
+                ],
               ),
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
@@ -357,7 +342,7 @@ class AmidaPainter extends CustomPainter {
   final ui.Image? image;
   final double animationProgress;
 
-  static const winningColors = [
+  static const _winningColors = [
     Colors.red,
     Colors.orange,
     Colors.blue,
@@ -377,8 +362,8 @@ class AmidaPainter extends CustomPainter {
       ..strokeWidth = 4
       ..style = PaintingStyle.stroke;
 
-    // 横線の数ではなく、CSVの参加者数から縦線を描画する。
-    for (var i = 0; i < nameList.length; i++) {
+    final columnCount = nameList.length;
+    for (var i = 0; i < columnCount; i++) {
       final x = i * _kColumnSpacing;
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
 
@@ -397,28 +382,25 @@ class AmidaPainter extends CustomPainter {
         textAlign: TextAlign.center,
         textDirection: TextDirection.ltr,
       )..layout();
+
       nameTextPainter.paint(
         canvas,
         Offset(x - nameTextPainter.width / 2, -nameTextPainter.height - 5),
       );
 
       if (lotteryList[i] == AmidaLottery.win && image != null) {
-        final width = image!.width.toDouble();
-        final height = image!.height.toDouble();
-        final ratio = width / height;
+        final originalWidth = image!.width.toDouble();
+        final originalHeight = image!.height.toDouble();
+        final aspectRatio = originalWidth / originalHeight;
         const maxWidth = 50.0;
         const maxHeight = 50.0;
-        final drawWidth = ratio > 1 ? maxWidth : maxHeight * ratio;
-        final drawHeight = ratio > 1 ? maxWidth / ratio : maxHeight;
+        final drawWidth = aspectRatio > 1 ? maxWidth : maxHeight * aspectRatio;
+        final drawHeight = aspectRatio > 1 ? maxWidth / aspectRatio : maxHeight;
+
         canvas.drawImageRect(
           image!,
-          Rect.fromLTWH(0, 0, width, height),
-          Rect.fromLTWH(
-            x - drawWidth / 2,
-            size.height + 5,
-            drawWidth,
-            drawHeight,
-          ),
+          Rect.fromLTWH(0, 0, originalWidth, originalHeight),
+          Rect.fromLTWH(x - drawWidth / 2, size.height + 5, drawWidth, drawHeight),
           Paint(),
         );
       }
@@ -434,41 +416,48 @@ class AmidaPainter extends CustomPainter {
     }
 
     final pathCount = winningLinePaths.length;
+    if (pathCount == 0) return;
+
     for (var pathIndex = 0; pathIndex < pathCount; pathIndex++) {
-      final start = pathIndex / pathCount;
-      final end = (pathIndex + 1) / pathCount;
-      final progress = ((animationProgress - start) / (end - start))
+      final startProgress = pathIndex / pathCount;
+      final endProgress = (pathIndex + 1) / pathCount;
+      final pathProgress = ((animationProgress - startProgress) /
+              (endProgress - startProgress))
           .clamp(0.0, 1.0);
       _paintPath(
         canvas,
         winningLinePaths[pathIndex],
-        progress,
-        winningColors[pathIndex % winningColors.length],
+        pathProgress,
+        _winningColors[pathIndex % _winningColors.length],
       );
     }
   }
 
   void _paintPath(Canvas canvas, List<Offset> path, double progress, Color color) {
     if (path.length < 2 || progress <= 0) return;
-    final paint = Paint()
+    final linePaint = Paint()
       ..color = color
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke;
     final segmentCount = path.length - 1;
-    final scaled = progress * segmentCount;
-    final completed = scaled.floor().clamp(0, segmentCount);
+    final scaledProgress = progress * segmentCount;
+    final completedSegments = scaledProgress.floor().clamp(0, segmentCount);
 
-    for (var i = 0; i < completed; i++) {
-      canvas.drawLine(path[i], path[i + 1], paint);
+    for (var i = 0; i < completedSegments; i++) {
+      canvas.drawLine(path[i], path[i + 1], linePaint);
     }
-    if (completed < segmentCount) {
-      final t = scaled - completed;
-      final a = path[completed];
-      final b = path[completed + 1];
+
+    if (completedSegments < segmentCount) {
+      final t = scaledProgress - completedSegments;
+      final start = path[completedSegments];
+      final end = path[completedSegments + 1];
       canvas.drawLine(
-        a,
-        Offset(a.dx + (b.dx - a.dx) * t, a.dy + (b.dy - a.dy) * t),
-        paint,
+        start,
+        Offset(
+          start.dx + (end.dx - start.dx) * t,
+          start.dy + (end.dy - start.dy) * t,
+        ),
+        linePaint,
       );
     }
   }
