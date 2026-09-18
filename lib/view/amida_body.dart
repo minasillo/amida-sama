@@ -17,7 +17,7 @@ class AmidaBody extends StatefulWidget {
   const AmidaBody({
     required this.participantList,
     required this.wininngImagePath,
-    required this.allowManualLines,
+    this.allowManualLines = false,
     super.key,
   });
 
@@ -32,11 +32,12 @@ class AmidaBody extends StatefulWidget {
 class _AmidaBodyState extends State<AmidaBody>
     with SingleTickerProviderStateMixin {
   final Set<int> _selectedWinningIndices = {};
-  late List<HorizontalLine> _horizontalLines;
+  List<HorizontalLine> _horizontalLines = [];
   late List<AmidaLottery> lotteryList;
   List<List<Offset>> _winningLinePaths = [];
   ui.Image? image;
   bool isShowButton = true;
+
   late AnimationController _animationController;
   late Animation<double> _animation;
 
@@ -51,18 +52,25 @@ class _AmidaBodyState extends State<AmidaBody>
     _horizontalLines = widget.allowManualLines
         ? []
         : _generateRandomHorizontalLines(widget.participantList.length);
+
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 8),
     );
+
     _animation = CurvedAnimation(
       parent: _animationController,
       curve: Curves.linear,
     );
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final imageData = await _loadAssetImage(widget.wininngImagePath);
-        if (mounted) setState(() => image = imageData);
+        if (mounted) {
+          setState(() {
+            image = imageData;
+          });
+        }
       } catch (e) {
         debugPrint('画像アセットの読み込みに失敗しました: $e');
       }
@@ -106,12 +114,14 @@ class _AmidaBodyState extends State<AmidaBody>
 
   void _handleCanvasTap(TapUpDetails details) {
     if (!widget.allowManualLines || !isShowButton) return;
+
     final x = details.localPosition.dx;
     final y = details.localPosition.dy - _kCanvasTopPadding;
     if (x < 0 || x >= _kCanvasWidth || y < 0 || y > _kCanvasHeight) return;
 
     final columnIndex = (x / _kColumnSpacing).floor();
     if (columnIndex >= widget.participantList.length - 1) return;
+
     final yFactor = (y / _kCanvasHeight).clamp(0.0, 1.0);
 
     setState(() {
@@ -120,6 +130,7 @@ class _AmidaBodyState extends State<AmidaBody>
             line.startColomn == columnIndex &&
             (line.yPositionFactor - yFactor).abs() < 0.05,
       );
+
       if (existingIndex >= 0) {
         _horizontalLines.removeAt(existingIndex);
       } else {
@@ -144,22 +155,35 @@ class _AmidaBodyState extends State<AmidaBody>
   List<HorizontalLine> _generateRandomHorizontalLines(int columns) {
     const min = 1;
     const max = 20;
-    final result = <HorizontalLine>[];
-    final previous = <double>{};
-    for (var column = 0; column < columns - 1; column++) {
-      final values = <double>{};
-      while (values.length < _kMaxHorizontalLinesPerColumn) {
-        final value = randomDecimalInRangeWithStep05(min, max);
-        if (!previous.contains(value)) values.add(value);
-      }
-      previous..clear()..addAll(values);
-      result.addAll(values.map((y) => HorizontalLine(
-            startColomn: column,
-            endColumn: column + 1,
+    final horizontalLinesList = <HorizontalLine>[];
+    final prevYPositionFactors = <double>{};
+
+    for (var i = 0; i < columns - 1; i++) {
+      late double newYPositionFactor;
+      final tempYPositionFactors = <double>{};
+      do {
+        newYPositionFactor = randomDecimalInRangeWithStep05(min, max);
+        if (!prevYPositionFactors.contains(newYPositionFactor)) {
+          tempYPositionFactors.add(newYPositionFactor);
+        }
+      } while (tempYPositionFactors.length < _kMaxHorizontalLinesPerColumn);
+
+      prevYPositionFactors
+        ..clear()
+        ..addAll(tempYPositionFactors);
+
+      horizontalLinesList.addAll(
+        tempYPositionFactors.map(
+          (y) => HorizontalLine(
+            startColomn: i,
+            endColumn: i + 1,
             yPositionFactor: y,
-          )));
+          ),
+        ),
+      );
     }
-    return result;
+
+    return horizontalLinesList;
   }
 
   void _startAnimation() {
@@ -178,37 +202,43 @@ class _AmidaBodyState extends State<AmidaBody>
       final path = <Offset>[];
       var currentX = winningIndex * _kColumnSpacing;
       var currentY = _kCanvasHeight;
-      double? lastProcessedY;
       path.add(Offset(currentX, currentY + _kCanvasTopPadding));
+      double? lastProcessedY;
 
       while (currentY > 0) {
-        final lines = _horizontalLines.where((line) {
+        final availableLines = _horizontalLines.where((line) {
           final lineY = line.yPositionFactor * _kCanvasHeight;
           return lineY < currentY &&
               (lastProcessedY == null || lineY != lastProcessedY) &&
               (line.startColomn * _kColumnSpacing == currentX ||
                   line.endColumn * _kColumnSpacing == currentX);
         }).toList()
-          ..sort((a, b) => (b.yPositionFactor * _kCanvasHeight)
-              .compareTo(a.yPositionFactor * _kCanvasHeight));
+          ..sort(
+            (a, b) => (b.yPositionFactor * _kCanvasHeight)
+                .compareTo(a.yPositionFactor * _kCanvasHeight),
+          );
 
-        if (lines.isEmpty) {
+        if (availableLines.isNotEmpty) {
+          final nextLine = availableLines.first;
+          currentY = nextLine.yPositionFactor * _kCanvasHeight;
+          path.add(Offset(currentX, currentY + _kCanvasTopPadding));
+          currentX = nextLine.startColomn * _kColumnSpacing == currentX
+              ? nextLine.endColumn * _kColumnSpacing
+              : nextLine.startColomn * _kColumnSpacing;
+          path.add(Offset(currentX, currentY + _kCanvasTopPadding));
+          lastProcessedY = currentY;
+        } else {
           currentY = 0;
           path.add(Offset(currentX, _kCanvasTopPadding));
-          continue;
         }
-        final nextLine = lines.first;
-        currentY = nextLine.yPositionFactor * _kCanvasHeight;
-        path.add(Offset(currentX, currentY + _kCanvasTopPadding));
-        currentX = nextLine.startColomn * _kColumnSpacing == currentX
-            ? nextLine.endColumn * _kColumnSpacing
-            : nextLine.startColomn * _kColumnSpacing;
-        path.add(Offset(currentX, currentY + _kCanvasTopPadding));
-        lastProcessedY = currentY;
       }
+
       paths.add(path);
     }
-    setState(() => _winningLinePaths = paths);
+
+    setState(() {
+      _winningLinePaths = paths;
+    });
   }
 
   @override
@@ -293,6 +323,7 @@ class HorizontalLine {
     required this.endColumn,
     required this.yPositionFactor,
   });
+
   final int startColomn;
   final int endColumn;
   final double yPositionFactor;
@@ -315,9 +346,17 @@ class AmidaPainter extends CustomPainter {
   final ui.Image? image;
   final double animationProgress;
 
-  static const winningColors = [
-    Colors.red, Colors.orange, Colors.blue, Colors.green, Colors.purple,
-    Colors.pink, Colors.teal, Colors.amber, Colors.indigo, Colors.cyan,
+  static const _winningColors = [
+    Colors.red,
+    Colors.orange,
+    Colors.blue,
+    Colors.green,
+    Colors.purple,
+    Colors.pink,
+    Colors.teal,
+    Colors.amber,
+    Colors.indigo,
+    Colors.cyan,
   ];
 
   @override
@@ -329,10 +368,13 @@ class AmidaPainter extends CustomPainter {
 
     for (var i = 0; i < nameList.length; i++) {
       final x = i * _kColumnSpacing;
-      final top = _kCanvasTopPadding;
-      canvas.drawLine(Offset(x, top), Offset(x, top + _kCanvasHeight), paint);
+      canvas.drawLine(
+        Offset(x, _kCanvasTopPadding),
+        Offset(x, _kCanvasTopPadding + _kCanvasHeight),
+        paint,
+      );
 
-      final textPainter = TextPainter(
+      final nameTextPainter = TextPainter(
         text: TextSpan(
           children: [
             TextSpan(text: '${nameList[i].lastName}\n'),
@@ -340,26 +382,34 @@ class AmidaPainter extends CustomPainter {
           ],
           style: const TextStyle(
             color: Colors.black,
-            fontSize: 16,
+            fontSize: 13,
             fontWeight: FontWeight.bold,
           ),
         ),
         textAlign: TextAlign.center,
         textDirection: TextDirection.ltr,
-      )..layout();
-      textPainter.paint(canvas, Offset(x - textPainter.width / 2, 0));
+        maxLines: 2,
+        ellipsis: '…',
+      )..layout(maxWidth: _kColumnSpacing - 10);
 
-      if (lotteryList[i] == AmidaLottery.win && image != null) {
-        final width = image!.width.toDouble();
-        final height = image!.height.toDouble();
-        final ratio = width / height;
+      final textTop = (_kCanvasTopPadding - nameTextPainter.height) / 2;
+      nameTextPainter.paint(
+        canvas,
+        Offset(x - nameTextPainter.width / 2, textTop),
+      );
+
+      if (i < lotteryList.length && lotteryList[i] == AmidaLottery.win && image != null) {
+        final originalWidth = image!.width.toDouble();
+        final originalHeight = image!.height.toDouble();
+        final aspectRatio = originalWidth / originalHeight;
         const maxWidth = 50.0;
         const maxHeight = 50.0;
-        final drawWidth = ratio > 1 ? maxWidth : maxHeight * ratio;
-        final drawHeight = ratio > 1 ? maxWidth / ratio : maxHeight;
+        final drawWidth = aspectRatio > 1 ? maxWidth : maxHeight * aspectRatio;
+        final drawHeight = aspectRatio > 1 ? maxWidth / aspectRatio : maxHeight;
+
         canvas.drawImageRect(
           image!,
-          Rect.fromLTWH(0, 0, width, height),
+          Rect.fromLTWH(0, 0, originalWidth, originalHeight),
           Rect.fromLTWH(
             x - drawWidth / 2,
             _kCanvasTopPadding + _kCanvasHeight + 5,
@@ -372,8 +422,7 @@ class AmidaPainter extends CustomPainter {
     }
 
     for (final line in horizontalLines) {
-      final y = _kCanvasTopPadding + size.height * 0 +
-          _kCanvasHeight * line.yPositionFactor;
+      final y = _kCanvasTopPadding + _kCanvasHeight * line.yPositionFactor;
       canvas.drawLine(
         Offset(line.startColomn * _kColumnSpacing, y),
         Offset(line.endColumn * _kColumnSpacing, y),
@@ -382,33 +431,49 @@ class AmidaPainter extends CustomPainter {
     }
 
     final pathCount = winningLinePaths.length;
+    if (pathCount == 0) return;
+
     for (var pathIndex = 0; pathIndex < pathCount; pathIndex++) {
-      final start = pathIndex / pathCount;
-      final end = (pathIndex + 1) / pathCount;
-      final progress = ((animationProgress - start) / (end - start))
+      final startProgress = pathIndex / pathCount;
+      final endProgress = (pathIndex + 1) / pathCount;
+      final pathProgress = ((animationProgress - startProgress) /
+              (endProgress - startProgress))
           .clamp(0.0, 1.0);
-      _paintPath(canvas, winningLinePaths[pathIndex], progress,
-          winningColors[pathIndex % winningColors.length]);
+      _paintPath(
+        canvas,
+        winningLinePaths[pathIndex],
+        pathProgress,
+        _winningColors[pathIndex % _winningColors.length],
+      );
     }
   }
 
   void _paintPath(Canvas canvas, List<Offset> path, double progress, Color color) {
     if (path.length < 2 || progress <= 0) return;
-    final paint = Paint()
+    final linePaint = Paint()
       ..color = color
       ..strokeWidth = 10
       ..style = PaintingStyle.stroke;
-    final scaled = progress * (path.length - 1);
-    final completed = scaled.floor().clamp(0, path.length - 1);
-    for (var i = 0; i < completed; i++) {
-      canvas.drawLine(path[i], path[i + 1], paint);
+    final segmentCount = path.length - 1;
+    final scaledProgress = progress * segmentCount;
+    final completedSegments = scaledProgress.floor().clamp(0, segmentCount);
+
+    for (var i = 0; i < completedSegments; i++) {
+      canvas.drawLine(path[i], path[i + 1], linePaint);
     }
-    if (completed < path.length - 1) {
-      final t = scaled - completed;
-      final a = path[completed];
-      final b = path[completed + 1];
-      canvas.drawLine(a, Offset(a.dx + (b.dx - a.dx) * t,
-          a.dy + (b.dy - a.dy) * t), paint);
+
+    if (completedSegments < segmentCount) {
+      final t = scaledProgress - completedSegments;
+      final start = path[completedSegments];
+      final end = path[completedSegments + 1];
+      canvas.drawLine(
+        start,
+        Offset(
+          start.dx + (end.dx - start.dx) * t,
+          start.dy + (end.dy - start.dy) * t,
+        ),
+        linePaint,
+      );
     }
   }
 
